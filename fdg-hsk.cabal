@@ -11,14 +11,21 @@ copyright:           2017 Tim Pierson
 category:            Math
 build-type:          Simple
 extra-source-files:  README.md
-cabal-version:       >=1.10
+cabal-version:       >=1.24
 tested-with:         GHC == 8.2.1
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib
+  exposed-modules:     Tuple
   ghc-options:         -Wall
-  build-depends:       base
+  build-depends:       base >= 4.6 && <5.0
+                     , singletons
+                       , numhask
+                     , numhask-array
+                     , hvect
+                     , containers
+                       ,ghc-typelits-natnormalise
+                     
   default-language:    Haskell2010
 
 test-suite fdg-hsk-test
