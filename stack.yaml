@@ -1,10 +1,6 @@
 flags: {}
 packages:
   - "."
-  - location:
-      git: https://github.com/agrafix/hvect.git
-      commit: master
-      extra-dep: true
 extra-deps:
 - HUnit-1.6.0.0
 - QuickCheck-2.10.1
@@ -23,4 +19,5 @@ extra-deps:
 - stm-2.4.4.1
 - numhask-array-0.0.2
 - tf-random-0.5
-resolver: nightly-2017-10-21
+- type-level-sets-0.8.0.0
+resolver: nightly-2017-10-28

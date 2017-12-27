@@ -20,11 +20,12 @@ library
   ghc-options:         -Wall
   build-depends:       base >= 4.6 && <5.0
                      , singletons
-                       , numhask
+                     , numhask
                      , numhask-array
-                     , hvect
                      , containers
-                       ,ghc-typelits-natnormalise
+                       , keys
+                     , distributive >= 0.4 && < 0.6
+                     , ghc-typelits-natnormalise
                      
   default-language:    Haskell2010
 

@@ -1,128 +1,204 @@
-{-# LANGUAGE TypeInType #-}
-{-# LANGUAGE OverloadedLists, OverloadedStrings #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ConstraintKinds, TemplateHaskell, UndecidableInstances #-}
-{-# OPTIONS_GHC -fplugin GHC.TypeLits.Normalise #-}
+{-# LANGUAGE DataKinds            #-}
+{-# LANGUAGE DeriveFunctor        #-}
+{-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE GADTs                #-}
+{-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE PolyKinds            #-}
+{-# LANGUAGE StandaloneDeriving   #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE TypeOperators        #-}
+{-# LANGUAGE UndecidableInstances #-}
+
+{-# OPTIONS -Wall -fno-warn-unticked-promoted-constructors -fno-warn-missing-signatures #-}
 module Tuple () where
-
-import NumHask.Array as A
-import NumHask.Prelude as P
-import Data.HVect as HV
-import Data.Singletons
-import Data.Singletons.Prelude.Eq ((:==))
-import Data.Singletons.Prelude.Bool ((:&&))
-import Data.Singletons.Prelude.Ord ((:>))
-import Data.Singletons.Prelude.List ((:!!))
-import Data.Singletons.Prelude.Num ((:+), (:-))
-import Data.Singletons.TH (promote, singletons, ErrorSym0)
-import Data.Tree as T
-import Data.Kind (type(*), Type)
+import Data.Distributive
+import Data.Key hiding (lookup)
+import NumHask.Array (Array(..))
+import Data.Singletons.Prelude (SingI(..))
+import NumHask.Prelude as P hiding (Shape, Down, Up, SingI)
+import Prelude hiding (lookup, Nat)
 
 
-$(promote
-    [d|
-
-  data TTree a = Branch [TTree a]
-               | Leaf a
-               | NilTree
-  |])
-
-type family AllShapes t where
-  AllShapes '[] = '[]
-  AllShapes (t:ts) = TupShape t : AllShapes ts
-
-type family TupShape t where
-  TupShape (Tuple sh a) = sh
-
-type family IsTup t where
-  IsTup (Tuple sh a) = 'True
-  IsTup _ = 'False
-
-type family IsEmpty t where
-  IsEmpty '[] = 'True
-  IsEmpty _ = 'False
-
-type family AllAreTups ts where
-  AllAreTups (t:ts) = ('True :== IsTup t) :&& AllAreTups ts
-  AllAreTups '[] = 'False
-
-type family GetNthTree n (sh :: TTree [P.Nat]) where
-  GetNthTree 0 NilTree = NilTree
-  GetNthTree 0 (Leaf a) = Leaf a
-  GetNthTree n (Branch ls) = ls :!! n
-  GetNthTree _ _ = ErrorSym0 @@ "Whoa!"
-
-type ValidTups tps = (AllAreTups tps ~ 'True, IsEmpty tps ~ 'False)
+import Control.Applicative (liftA2)
 
 
-type family InBounds i hv where
-  InBounds i hv = HV.HVectLen hv :> i
+data family Sing (x :: k)
 
-type IsInBounds i hv = InBounds i hv ~ True
+class KnownSing x where
+  knownSing :: Sing x
 
-data Tuple (sh :: TTree [P.Nat]) a where
-  C :: A.Array (s :: [P.Nat]) a -> Tuple ('Leaf s) a
-  U :: (ValidTups tps) => HVect tps -> Tuple ('Branch (AllShapes tps)) a
-  D :: (ValidTups tps) => HVect tps -> Tuple ('Branch (AllShapes tps)) a
+data instance  Sing (xs :: [k]) where
+        SNil :: Sing '[]
+        SCons :: Sing x -> Sing xs -> Sing (x ': xs)
 
-type family HNat2Nat (n :: HV.Nat) :: P.Nat where
-  HNat2Nat (HV.Zero) = 0
-  HNat2Nat (HV.Succ n) = 1 :+ (HNat2Nat n)
+instance KnownSing '[] where
+  knownSing = SNil
 
-type family Nat2HNat (n :: P.Nat) :: HV.Nat where
-  Nat2HNat 0 = HV.Zero
-  Nat2HNat n = HV.Succ (Nat2HNat (n :- 1))
+instance (KnownSing x, KnownSing xs) => KnownSing (x ': xs) where
+  knownSing = SCons knownSing knownSing
 
--- data LNat = Z | S LNat
--- data Vec (a :: Type) (n :: LNat) where
---   NilV :: Vec a Z
---   ConsV :: a -> Vec a n -> Vec a (S n)
+data Direction
+  = Up
+  | Down
 
--- data HVec :: (k -> Type) -> [k] -> Type where
---   NilHV :: HVec mkShape '[]
---   ConsHV :: mkShape a -> HVec mkShape as -> HVec mkShape (a ': as)
+data Shape = ShElem [P.Nat] | ShTuple Direction [Shape]
 
-homp_ :: HV.SNat n -> HVect tps -> HV.HVectIdx n tps
-homp_ i v = i HV.!! v
+data instance  Sing (gs :: Direction) where
+        SUp :: Sing Up
+        SDown :: Sing Down
 
-comp_ ::
-     (SingI n
-     -- , ValidTups tps
-      -- , hn ~ (Nat2HNat n), IsInBounds hn tps,  HV.HVectIdx hn tps ~ Tuple (GetNthTree n s) a
-     )
-  => Tuple s a
-  -> Sing n
-  -> Tuple (GetNthTree n s) a 
-comp_ (U v) n =
-  case ((fromSing n) :: Integer) of
-    i -> case HV.intToSNat (P.fromIntegral i) of
-           AnySNat s -> homp_ s v 
-      
+instance KnownSing Up where
+  knownSing = SUp
 
--- component :: (SingI l, l ~ [Int]) => Tuple s a -> (forall l.  Sing l)  -> Tuple sh a
--- -- component a [] = a
--- component (U v) ll = case fromSing ll of
---                        [] -> error "Should never happen!"
---                        (x:xs) -> component (case HV.intToSNat x of (AnySNat n) -> n HV.!! v) (case toSing xs of SomeSing xsx -> xsx)
--- component (D v)  ll = component (case HV.intToSNat x of (AnySNat n) -> n HV.!! v) xs
+instance KnownSing Down where
+  knownSing = SDown
 
+deriving instance Show (Sing (d :: Direction))
 
--- mapHV :: (Tuple sh a -> Tuple sh a) -> HVect b -> HVect b
--- mapHV _ HNil = HNil
--- mapHV fn ((:&:) x xs) = (fn x) :&:  (mapHV fn xs)
+data instance  Sing (shape :: Shape) where
+        SShElem :: Sing (ShElem ns)
+        SShTuple :: Sing d -> Sing shapes -> Sing (ShTuple d shapes)
 
--- monOp :: forall a sh. (forall s v. Array s a -> Array v a) -> Tuple sh a -> Tuple sh a
--- monOp fn (C arr ) = C $ (fn arr)
--- monOp fn (U vs) = U $ mapHV (monOp fn) vs
--- monOp fn (D vs) = D $ mapHV (monOp fn) vs
+instance KnownSing (ShElem ns) where
+  knownSing = SShElem 
+
+instance (KnownSing d, KnownSing shapes) => KnownSing (ShTuple d shapes) where
+  knownSing = SShTuple knownSing knownSing
+
+data TupleTree shape a where
+  Elem :: (SingI ns) => Array ns a -> TupleTree (ShElem ns) a
+  Tuple :: Sing d -> TupleForest shapes a -> TupleTree (ShTuple d shapes) a
+
+deriving instance Functor (TupleTree shape)
+deriving instance Show a => Show (TupleTree shape a)
+
+-- applyTupleTree ::
+--      TupleTree shape (a -> b) -> TupleTree shape a -> TupleTree shape b
+-- applyTupleTree =
+--   \case
+--     Elem f ->
+--       \case
+--         Elem x -> Elem (f x)
+--     Tuple d forest1 ->
+--       \case
+--         Tuple _ forest2 -> Tuple d (forest1 `applyTupleForest` forest2)
+
+-- pureTupleTree :: Sing shape -> Array ns b -> TupleTree shape a
+-- pureTupleTree =
+--   \case
+--     SShElem -> Elem 
+--     SShTuple d shapes -> \a -> Tuple d (pureTupleForest shapes a)
+
+-- instance KnownSing shape => Applicative (TupleTree shape) where
+--   (<*>) = applyTupleTree
+--   pure = pureTupleTree knownSing
+
+--have to make int -> Sing functions to implment index since Rep family only has access to shape and not subshape needed by indexes.
+--probably need those existential closures to prove the int is in bounds
+
+instance Keyed (TupleTree shape) where
+    mapWithKey = mapWithKeyRep
+
+instance KnownSing shape => Indexable (TupleTree shape) where
+    index = lookup
+
+instance KnownSing shape => Distributive (TupleTree shape) where
+    distribute = distributeRep
+
+instance KnownSing shape => Representable (TupleTree shape) where
+    type Rep (TupleTree shape) = [Int]
+    tabulate f = case knownSing :: Sing shape of
+       SShElem -> tabulate f
+
+data TupleForest shapes a where
+  ForestNil :: TupleForest '[] a
+  ForestCons
+    :: TupleTree shape a
+    -> TupleForest shapes a
+    -> TupleForest (shape ': shapes) a
+
+infixr `ForestCons`
+
+deriving instance Functor (TupleForest shapes)
+deriving instance Show a => Show (TupleForest shape a)
+
+-- applyTupleForest ::
+--      TupleForest shape (a -> b) -> TupleForest shape a -> TupleForest shape b
+-- applyTupleForest =
+--   \case
+--     ForestNil ->
+--       \case
+--         ForestNil -> ForestNil
+--     ForestCons t1 ts1 ->
+--       \case
+--         ForestCons t2 ts2 ->
+--           ForestCons (t1 `applyTupleTree` t2) (ts1 `applyTupleForest` ts2)
+
+-- pureTupleForest :: Sing shapes -> a -> TupleForest shapes a
+-- pureTupleForest =
+--   \case
+--     SNil -> pure ForestNil
+--     SCons x xs -> ForestCons <$> pureTupleTree x <*> pureTupleForest xs
+
+-- instance KnownSing shapes => Applicative (TupleForest shapes) where
+--   (<*>) = applyTupleForest
+--   pure = pureTupleForest knownSing
+
+-- instance (Num a, KnownSing shape) => Num (TupleTree shape a) where
+--   negate      = fmap P.negate
+--   (+)         = liftA2 (P.+)
+--   (*)         = liftA2 (P.*)
+--   fromInteger = pure . P.fromInteger
+--   abs         = fmap P.abs
+--   signum      = fmap signum
+
+type ExampleShape
+   = ShTuple Up '[ ShElem '[1,2,3], ShTuple Up '[ ShElem '[1,2], ShElem '[1]], ShTuple Down '[ ShElem '[1,2,34], ShElem '[1,2]]]
+
+-- example :: TupleTree ExampleShape String
+-- example =
+--   Tuple
+--     SUp
+--     (Elem "t" `ForestCons`
+--      Tuple SUp (Elem "x" `ForestCons` Elem "y" `ForestCons` ForestNil) `ForestCons`
+--      Tuple SDown (Elem "p_x" `ForestCons` Elem "p_y" `ForestCons` ForestNil) `ForestCons`
+--      ForestNil)
+
+data TreeIndex shape subshape where
+  IxNil :: TreeIndex shape shape
+  IxCons
+    :: ForestIndex shapes subshape
+    -> TreeIndex subshape subsubshape
+    -> TreeIndex (ShTuple d shapes) subsubshape
+
+infixr `IxCons`
+
+data ForestIndex shapes subshape where
+  IxZ :: ForestIndex (shape ': shapes) shape
+  IxS :: ForestIndex shapes subshape -> ForestIndex (shape ': shapes) subshape
+
+exampleIx0 = IxZ `IxCons` IxNil
+exampleIx1 = IxS IxZ `IxCons` IxNil
+exampleIx2 = IxS IxZ `IxCons` IxZ `IxCons` IxNil
+exampleIx3 = IxS (IxS IxZ) `IxCons` IxS IxZ `IxCons` IxNil
+
+lookup :: TreeIndex shape subshape -> TupleTree shape a -> TupleTree subshape a
+lookup = \case
+  IxNil -> id
+  IxCons x xs -> \case
+    Tuple _ ts -> lookup xs (at x ts)
+
+at ::
+     ForestIndex shapes subshape -> TupleForest shapes a -> TupleTree subshape a
+at =
+  \case
+    IxZ ->
+      \case
+        ForestCons x _ -> x
+    IxS n ->
+      \case
+        ForestCons _ xs -> at n xs
 
 -- instance (AdditiveMagma a) => AdditiveMagma (Tuple sh a) where
 --   plus (C arr) (C brr) = C $ plus arr brr
